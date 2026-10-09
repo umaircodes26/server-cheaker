@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPS Sentinel | 24/7 Server Watchdog & Analytics</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            darkbg: '#0a0e17',
+            cardbg: '#111827',
+            bordercol: 'rgba(255, 255, 255, 0.08)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-[#0a0e17] text-gray-100 font-sans antialiased selection:bg-cyan-500 selection:text-white">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 max-w-sm"></div>
+
+  <!-- Header -->
+  <header class="border-b border-white/10 bg-[#0f172a]/80 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <i data-lucide="shield-alert" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">
+              VPS Sentinel
+            </h1>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800/60 font-mono">24/7 Watchdog</span>
+          </div>
+          <p class="text-xs text-gray-400 flex items-center gap-2">
+            Target: <span id="header-vps-ip" class="font-mono text-cyan-300 font-medium">127.0.0.1</span>
+            <span id="header-connection-status" class="flex items-center gap-1.5 ml-2 text-xs text-emerald-400">
+              <span class="pulse-indicator pulse-green"></span> Connected
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Header Action Buttons -->
+      <div class="flex items-center gap-2.5">
+        <button id="btn-auth-toggle" onclick="openAuthModal()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition-colors" title="Manage Dashboard API Key">
+          <i data-lucide="key" class="w-3.5 h-3.5"></i>
+          <span id="header-auth-label">API Key</span>
+        </button>
+        <button id="btn-manual-refresh" onclick="triggerManualRefresh()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors text-gray-300 hover:text-white">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          <span>Scan Now</span>
+        </button>
+        <button onclick="trigger6HourReport()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 transition-colors">
+          <i data-lucide="send" class="w-3.5 h-3.5"></i>
+          <span>Send 6h Discord Report</span>
+        </button>
+        <button onclick="switchTab('tab-settings')" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold transition-all shadow-md shadow-cyan-600/20">
+          <i data-lucide="settings" class="w-3.5 h-3.5"></i>
+          <span>Settings</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- KPI Metric Cards Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <!-- CPU Usage Card -->
+      <div class="glass-card p-4 glass-card-hover">
+        <div class="flex items-center justify-between text-gray-400 text-xs mb-2">
+          <span class="flex items-center gap-1.5"><i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i> CPU Usage</span>
+          <span id="card-cpu-load" class="font-mono text-gray-400">Load: 0.00</span>
+        </div>
+        <div class="flex items-baseline justify-between mb-2">
+          <span id="card-cpu-percent" class="text-2xl font-bold font-mono text-white">0.0%</span>
+          <span id="card-cpu-badge" class="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/40">Normal</span>
+        </div>
+        <div class="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+          <div id="card-cpu-bar" class="bg-cyan-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- RAM Usage Card -->
+      <div class="glass-card p-4 glass-card-hover">
+        <div class="flex items-center justify-between text-gray-400 text-xs mb-2">
+          <span class="flex items-center gap-1.5"><i data-lucide="layers" class="w-4 h-4 text-indigo-400"></i> Memory (RAM)</span>
+          <span id="card-ram-mb" class="font-mono text-gray-400">0 / 0 MB</span>
+        </div>
+        <div class="flex items-baseline justify-between mb-2">
+          <span id="card-ram-percent" class="text-2xl font-bold font-mono text-white">0.0%</span>
+          <span id="card-ram-badge" class="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/40">Optimal</span>
+        </div>
+        <div class="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+          <div id="card-ram-bar" class="bg-indigo-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Disk Usage Card -->
+      <div class="glass-card p-4 glass-card-hover">
+        <div class="flex items-center justify-between text-gray-400 text-xs mb-2">
+          <span class="flex items-center gap-1.5"><i data-lucide="hard-drive" class="w-4 h-4 text-amber-400"></i> Root Disk (/)</span>
+          <span id="card-disk-gb" class="font-mono text-gray-400">0 / 0 GB</span>
+        </div>
+        <div class="flex items-baseline justify-between mb-2">
+          <span id="card-disk-percent" class="text-2xl font-bold font-mono text-white">0.0%</span>
+          <span id="card-disk-badge" class="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/40">Safe</span>
+        </div>
+        <div class="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+          <div id="card-disk-bar" class="bg-amber-500 h-1.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Docker & Health Card -->
+      <div class="glass-card p-4 glass-card-hover">
+        <div class="flex items-center justify-between text-gray-400 text-xs mb-2">
+          <span class="flex items-center gap-1.5"><i data-lucide="boxes" class="w-4 h-4 text-blue-400"></i> Containers & Sites</span>
+          <span id="card-uptime-str" class="font-mono text-gray-400">Up: Active</span>
+        </div>
+        <div class="flex items-baseline justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span id="card-containers-count" class="text-2xl font-bold font-mono text-white">0/0</span>
+            <span class="text-xs text-gray-400 font-mono">Docker</span>
+          </div>
+          <div class="text-right">
+            <span id="card-websites-count" class="text-lg font-bold font-mono text-emerald-400">0/0</span>
+            <span class="text-xs text-gray-400 font-mono block">Sites Up</span>
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs text-gray-400 pt-1 border-t border-white/5">
+          <span>Host: <span id="card-hostname" class="text-gray-200 font-mono">vps</span></span>
+          <span id="card-alerts-count" class="text-rose-400 font-mono">0 Incidents</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="border-b border-white/10 mb-6 flex flex-wrap gap-2 text-sm font-medium">
+      <button onclick="switchTab('tab-analytics')" id="btn-tab-analytics" class="tab-btn px-4 py-2.5 border-b-2 border-cyan-500 text-cyan-400 flex items-center gap-2 transition-colors">
+        <i data-lucide="line-chart" class="w-4 h-4"></i> Live Analytics
+      </button>
+      <button onclick="switchTab('tab-docker')" id="btn-tab-docker" class="tab-btn px-4 py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition-colors">
+        <i data-lucide="container" class="w-4 h-4"></i> Docker Containers (<span id="tab-docker-badge">0</span>)
+      </button>
+      <button onclick="switchTab('tab-websites')" id="btn-tab-websites" class="tab-btn px-4 py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition-colors">
+        <i data-lucide="globe" class="w-4 h-4"></i> Websites & Services (<span id="tab-web-badge">0</span>)
+      </button>
+      <button onclick="switchTab('tab-alerts')" id="btn-tab-alerts" class="tab-btn px-4 py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition-colors">
+        <i data-lucide="bell" class="w-4 h-4"></i> Unusual Activity & Alerts (<span id="tab-alert-badge">0</span>)
+      </button>
+      <button onclick="switchTab('tab-settings')" id="btn-tab-settings" class="tab-btn px-4 py-2.5 border-b-2 border-transparent text-gray-400 hover:text-gray-200 flex items-center gap-2 transition-colors">
+        <i data-lucide="sliders" class="w-4 h-4"></i> Control & Settings
+      </button>
+    </div>
+
+    <!-- TAB 1: Real-time Analytics -->
+    <div id="tab-analytics" class="tab-content space-y-6">
+      <div class="glass-card p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+              <i data-lucide="activity" class="w-5 h-5 text-cyan-400"></i> Resource Utilization Trends
+            </h2>
+            <p class="text-xs text-gray-400">Live CPU and RAM utilization captured every 30 seconds</p>
+          </div>
+          <div class="flex items-center gap-4 text-xs font-mono">
+            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-cyan-400 inline-block"></span> CPU %</span>
+            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full bg-indigo-400 inline-block"></span> RAM %</span>
+          </div>
+        </div>
+        <div class="h-64 w-full">
+          <canvas id="metricsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- System Diagnostic Details & Process Hogs -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- System Info -->
+        <div class="glass-card p-5">
+          <h3 class="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+            <i data-lucide="terminal" class="w-4 h-4 text-gray-400"></i> Server Specifications & Status
+          </h3>
+          <div class="space-y-2.5 text-xs">
+            <div class="flex justify-between py-1.5 border-b border-white/5">
+              <span class="text-gray-400">Server Alias:</span>
+              <span id="spec-server-name" class="font-medium text-white">VPS</span>
+            </div>
+            <div class="flex justify-between py-1.5 border-b border-white/5">
+              <span class="text-gray-400">Target IP / Host:</span>
+              <span id="spec-vps-ip" class="font-mono text-cyan-400">127.0.0.1</span>
+            </div>
+            <div class="flex justify-between py-1.5 border-b border-white/5">
+              <span class="text-gray-400">Operating System / Kernel:</span>
+              <span id="spec-kernel" class="font-mono text-gray-300">Linux</span>
+            </div>
+            <div class="flex justify-between py-1.5 border-b border-white/5">
+              <span class="text-gray-400">Load Average (1m, 5m, 15m):</span>
+              <span id="spec-load" class="font-mono text-gray-300">0.00, 0.00, 0.00</span>
+            </div>
+            <div class="flex justify-between py-1.5">
+              <span class="text-gray-400">Monitoring Engine Mode:</span>
+              <span id="spec-mode" class="px-2 py-0.5 rounded bg-blue-950 text-blue-300 font-mono text-[11px]">SSH Remote Agentless</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top Processes -->
+        <div class="glass-card p-5">
+          <h3 class="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+            <i data-lucide="flame" class="w-4 h-4 text-amber-400"></i> Top Resource Consuming Processes
+          </h3>
+          <div class="overflow-x-auto custom-scrollbar">
+            <table class="w-full text-left text-xs">
+              <thead class="text-gray-400 border-b border-white/10 uppercase font-mono text-[10px]">
+                <tr>
+                  <th class="pb-2">PID</th>
+                  <th class="pb-2">User</th>
+                  <th class="pb-2">Command</th>
+                  <th class="pb-2 text-right">CPU%</th>
+                  <th class="pb-2 text-right">RAM%</th>
+                </tr>
+              </thead>
+              <tbody id="top-processes-tbody" class="divide-y divide-white/5 font-mono text-gray-300">
+                <tr><td colspan="5" class="py-4 text-center text-gray-500">Awaiting diagnostic scan...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Docker Containers -->
+    <div id="tab-docker" class="tab-content hidden space-y-4">
+      <div class="glass-card p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+              <i data-lucide="container" class="w-5 h-5 text-blue-400"></i> Active Docker Containers
+            </h2>
+            <p class="text-xs text-gray-400">Custom docker services and container health on the VPS</p>
+          </div>
+          <button onclick="triggerManualRefresh()" class="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 flex items-center gap-1.5 border border-white/10">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Containers
+          </button>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-xs">
+            <thead class="text-gray-400 border-b border-white/10 uppercase font-mono text-[10px]">
+              <tr>
+                <th class="py-2.5 px-3">State</th>
+                <th class="py-2.5 px-3">Container Name</th>
+                <th class="py-2.5 px-3">Image</th>
+                <th class="py-2.5 px-3">CPU %</th>
+                <th class="py-2.5 px-3">Memory Usage</th>
+                <th class="py-2.5 px-3">Ports</th>
+                <th class="py-2.5 px-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="docker-containers-tbody" class="divide-y divide-white/5 font-sans">
+              <tr><td colspan="7" class="py-6 text-center text-gray-500 font-mono">No Docker telemetry received yet. Click Scan Now.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Websites & Services -->
+    <div id="tab-websites" class="tab-content hidden space-y-4">
+      <div class="glass-card p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+              <i data-lucide="globe" class="w-5 h-5 text-emerald-400"></i> Monitored Websites & Endpoints
+            </h2>
+            <p class="text-xs text-gray-400">HTTP/HTTPS uptime, response latency, and health checks</p>
+          </div>
+          <button onclick="openAddWebsiteModal()" class="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium flex items-center gap-1.5 shadow-md shadow-emerald-600/20">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Add Website
+          </button>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-xs">
+            <thead class="text-gray-400 border-b border-white/10 uppercase font-mono text-[10px]">
+              <tr>
+                <th class="py-2.5 px-3">Health</th>
+                <th class="py-2.5 px-3">Site Name</th>
+                <th class="py-2.5 px-3">URL</th>
+                <th class="py-2.5 px-3">Status Code</th>
+                <th class="py-2.5 px-3">Response Time</th>
+                <th class="py-2.5 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="websites-tbody" class="divide-y divide-white/5">
+              <tr><td colspan="6" class="py-6 text-center text-gray-500 font-mono">No websites configured yet. Add your first site above!</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: Alerts & Anomaly History -->
+    <div id="tab-alerts" class="tab-content hidden space-y-4">
+      <div class="glass-card p-5">
+        <div class="flex items-center justify-between gap-4 mb-4">
+          <div>
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+              <i data-lucide="bell" class="w-5 h-5 text-rose-400"></i> Unusual Activity & Incident Log
+            </h2>
+            <p class="text-xs text-gray-400">Audit trail of critical events, spikes, crashes, and Discord dispatches</p>
+          </div>
+          <button onclick="loadAlertsHistory()" class="text-xs px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 flex items-center gap-1.5 border border-white/10">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh Log
+          </button>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left text-xs">
+            <thead class="text-gray-400 border-b border-white/10 uppercase font-mono text-[10px]">
+              <tr>
+                <th class="py-2.5 px-3">Timestamp</th>
+                <th class="py-2.5 px-3">Severity</th>
+                <th class="py-2.5 px-3">Type</th>
+                <th class="py-2.5 px-3">Event Title</th>
+                <th class="py-2.5 px-3">Incident Message</th>
+                <th class="py-2.5 px-3 text-right">Discord</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-tbody" class="divide-y divide-white/5">
+              <tr><td colspan="6" class="py-6 text-center text-gray-500 font-mono">No unusual activities recorded. Server running healthy!</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 5: Control & Settings -->
+    <div id="tab-settings" class="tab-content hidden space-y-6">
+      <form id="settings-form" onsubmit="saveConfiguration(event)" class="space-y-6">
+        <!-- VPS Connection & Mode Card -->
+        <div class="glass-card p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 class="text-base font-semibold text-white flex items-center gap-2">
+              <i data-lucide="server" class="w-5 h-5 text-cyan-400"></i> Server & Monitoring Mode
+            </h2>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-400">Mode:</span>
+              <select id="cfg-connection-mode" onchange="toggleConnectionModeUI()" class="glass-input font-medium text-xs bg-[#0f172a] text-cyan-300 py-1.5 px-3 rounded-lg border border-cyan-500/30">
+                <option value="local">🛡️ Local Server Mode (Zero Credentials - Recommended)</option>
+                <option value="ssh">🌐 Remote SSH Mode (Agentless)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Local Mode Info Box -->
+          <div id="local-mode-info" class="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-start gap-3 mb-4">
+            <i data-lucide="shield-check" class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5"></i>
+            <div>
+              <p class="font-semibold text-emerald-200">Local Mode Active — 100% Rootless & Zero SSH Credentials</p>
+              <p class="text-[11px] text-emerald-300/80 mt-0.5">VPS Sentinel runs directly on this server host. No root access, no SSH passwords, and no private keys required.</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label class="block text-gray-400 mb-1">Server Friendly Name</label>
+              <input type="text" id="cfg-server-name" class="w-full glass-input" placeholder="Production VPS" required>
+            </div>
+            <div>
+              <label class="block text-gray-400 mb-1">VPS Display IP / Domain</label>
+              <input type="text" id="cfg-vps-ip" class="w-full glass-input font-mono" placeholder="127.0.0.1" required>
+            </div>
+          </div>
+
+          <!-- Remote SSH Specific Fields (Hidden by default in Local Mode) -->
+          <div id="ssh-fields-group" class="hidden mt-4 pt-4 border-t border-white/5 space-y-4">
+            <p class="text-xs text-amber-400 flex items-center gap-1.5 font-medium">
+              <i data-lucide="alert-circle" class="w-4 h-4"></i> Remote SSH Credentials (Only required if connecting to an external server):
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <div>
+                <label class="block text-gray-400 mb-1">SSH Port</label>
+                <input type="number" id="cfg-ssh-port" class="w-full glass-input font-mono" value="22">
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">SSH Username</label>
+                <input type="text" id="cfg-ssh-username" class="w-full glass-input font-mono" placeholder="sentinel (non-root)">
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">SSH Password</label>
+                <input type="password" id="cfg-ssh-password" class="w-full glass-input font-mono" placeholder="••••••••">
+              </div>
+            </div>
+            <div>
+              <label class="block text-gray-400 mb-1">SSH Private Key (Optional - PEM / OpenSSH format)</label>
+              <textarea id="cfg-ssh-key" rows="2" class="w-full glass-input font-mono text-[11px]" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashboard Access API Key Protection Card -->
+        <div class="glass-card p-5 border border-amber-500/20">
+          <h2 class="text-base font-semibold text-white flex items-center gap-2 mb-2">
+            <i data-lucide="key" class="w-5 h-5 text-amber-400"></i> Dashboard Access API Key (Password Protection)
+          </h2>
+          <p class="text-xs text-gray-400 mb-4">
+            Agar aapka VPS public internet par chal raha hai, to apni marzi ki secret key enter karein taake koi unauthorized person dashboard ya APIs access na kar sake. Blank chhorne par open access rahega.
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label class="block text-gray-400 mb-1">API Key / Access Secret</label>
+              <div class="relative">
+                <input type="password" id="cfg-api-key" class="w-full glass-input font-mono pr-10" placeholder="•••••••• (Leave blank for open access)">
+                <button type="button" onclick="toggleApiKeyVisibility()" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                  <i id="toggle-eye-icon" data-lucide="eye" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <span id="api-key-status-hint" class="text-xs text-gray-400">Status: <span class="text-amber-400 font-medium font-mono">Open Access</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Discord Webhook & Reports Card -->
+        <div class="glass-card p-5">
+          <h2 class="text-base font-semibold text-white flex items-center gap-2 mb-4">
+            <i data-lucide="message-square" class="w-5 h-5 text-indigo-400"></i> Discord Alerts & 6-Hour Reports
+          </h2>
+          <div class="space-y-4 text-xs">
+            <div>
+              <label class="block text-gray-400 mb-1">Discord Webhook URL</label>
+              <div class="flex gap-2">
+                <input type="url" id="cfg-discord-webhook" class="w-full glass-input font-mono" placeholder="https://discord.com/api/webhooks/..." required>
+                <button type="button" onclick="testDiscordWebhook()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg text-xs flex items-center gap-1.5 whitespace-nowrap shadow-md shadow-indigo-600/20">
+                  <i data-lucide="send" class="w-3.5 h-3.5"></i> Test Alert
+                </button>
+              </div>
+              <p class="text-[11px] text-gray-500 mt-1">Discord channel settings -> Integrations -> Webhooks -> Create Webhook & Copy URL</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-gray-400 mb-1">Scheduled Report Interval (Hours)</label>
+                <input type="number" step="0.5" id="cfg-report-hours" class="w-full glass-input font-mono" value="6" required>
+                <span class="text-[10px] text-gray-500">Default: 6 hours</span>
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">Check Frequency (Seconds)</label>
+                <input type="number" id="cfg-check-seconds" class="w-full glass-input font-mono" value="30" required>
+                <span class="text-[10px] text-gray-500">Default: 30 seconds</span>
+              </div>
+              <div>
+                <label class="block text-gray-400 mb-1">Alert Cooldown (Minutes)</label>
+                <input type="number" id="cfg-cooldown-mins" class="w-full glass-input font-mono" value="15" required>
+                <span class="text-[10px] text-gray-500">Prevents repetitive alert spam</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Anomaly Thresholds Card -->
+        <div class="glass-card p-5">
+          <h2 class="text-base font-semibold text-white flex items-center gap-2 mb-4">
+            <i data-lucide="gauge" class="w-5 h-5 text-amber-400"></i> Anomaly Trigger Thresholds
+          </h2>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+            <div>
+              <label class="block text-gray-400 mb-1">CPU Alert Threshold (%)</label>
+              <input type="number" id="cfg-thresh-cpu" class="w-full glass-input font-mono" value="85" required>
+            </div>
+            <div>
+              <label class="block text-gray-400 mb-1">RAM Alert Threshold (%)</label>
+              <input type="number" id="cfg-thresh-ram" class="w-full glass-input font-mono" value="90" required>
+            </div>
+            <div>
+              <label class="block text-gray-400 mb-1">Disk Alert Threshold (%)</label>
+              <input type="number" id="cfg-thresh-disk" class="w-full glass-input font-mono" value="90" required>
+            </div>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex justify-end gap-3">
+          <button type="submit" class="px-6 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-sm flex items-center gap-2 shadow-lg shadow-cyan-600/30 transition-all">
+            <i data-lucide="save" class="w-4 h-4"></i> Save Settings
+          </button>
+        </div>
+      </form>
+    </div>
+
+  </main>
+
+  <!-- Add Website Modal -->
+  <div id="add-website-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="glass-card bg-[#111827] p-6 max-w-md w-full border border-white/10 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="globe" class="w-5 h-5 text-emerald-400"></i> Add Monitored Website
+        </h3>
+        <button onclick="closeAddWebsiteModal()" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form onsubmit="saveNewWebsite(event)" class="space-y-4 text-xs">
+        <div>
+          <label class="block text-gray-400 mb-1">Website / API Name</label>
+          <input type="text" id="modal-site-name" class="w-full glass-input" placeholder="e.g. Client Store API" required>
+        </div>
+        <div>
+          <label class="block text-gray-400 mb-1">Target URL</label>
+          <input type="url" id="modal-site-url" class="w-full glass-input font-mono" placeholder="https://example.com" required>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-gray-400 mb-1">Expected HTTP Code</label>
+            <input type="number" id="modal-site-code" class="w-full glass-input font-mono" value="200" required>
+          </div>
+          <div>
+            <label class="block text-gray-400 mb-1">Timeout (Sec)</label>
+            <input type="number" id="modal-site-timeout" class="w-full glass-input font-mono" value="10" required>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="closeAddWebsiteModal()" class="px-4 py-2 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-medium shadow-md shadow-emerald-600/20">Add Endpoint</button>
+        </div>
+      </form>
+    </div>
+  <!-- Authentication / Access Key Modal -->
+  <div id="auth-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden items-center justify-center p-4">
+    <div class="glass-card bg-[#111827] p-6 max-w-sm w-full border border-amber-500/30 shadow-2xl">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
+          <i data-lucide="lock" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-white">Dashboard Access</h3>
+          <p class="text-xs text-gray-400">Enter your Secret API Key to continue</p>
+        </div>
+      </div>
+      <form onsubmit="submitAuthKey(event)" class="space-y-4 text-xs">
+        <div>
+          <label class="block text-gray-400 mb-1">API Key / Access Secret</label>
+          <input type="password" id="auth-input-key" class="w-full glass-input font-mono" placeholder="Enter secret key..." required>
+        </div>
+        <div id="auth-error-msg" class="text-xs text-rose-400 hidden"></div>
+        <div class="flex gap-2 pt-2">
+          <button type="button" onclick="closeAuthModal()" class="w-1/3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-xs">Cancel</button>
+          <button type="submit" class="w-2/3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md shadow-amber-500/20">
+            <i data-lucide="unlock" class="w-3.5 h-3.5"></i> Unlock
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard JavaScript -->
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
+
